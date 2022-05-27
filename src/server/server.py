@@ -379,6 +379,11 @@ def render_event():
     '''Route to heat summary page.'''
     return render_template('event.html', num_nodes=RACE.num_nodes, serverInfo=serverInfo, getOption=RHData.get_option, __=__)
 
+@APP.route('/heat-view')
+def render_heat_view():
+    '''Route to heats / round page.'''
+    return render_template('heat-view.html', num_nodes=RACE.num_nodes, serverInfo=serverInfo, getOption=RHData.get_option, __=__)
+
 @APP.route('/results')
 def render_results():
     '''Route to round summary page.'''

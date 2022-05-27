@@ -1,0 +1,212 @@
+{% extends "layout-basic.html" %} {% block title %}{{ __('Event') }}{% endblock %} {% block head %}
+<link rel="stylesheet" href="/static/heat-view.css?{{ serverInfo['release_version'] | urlencode }}"></link>
+
+<script src="./static/showdown-1.9.1/showdown.min.js"></script>
+
+{% endblock %} {% block content %}
+<script type="text/javascript" charset="utf-8">
+	var data_dependencies = [
+		'all_languages',
+		'language',
+		'frequency_data',
+		'class_data',
+		'heat_data'
+	];
+
+	$(document).ready(function () {
+
+		// set up node local store
+		for (var i = 0; i < {{ num_nodes }}; i++) {
+			rotorhazard.nodes[i] = new nodeModel();
+		}
+
+		socket.on('frequency_data', function (msg) {
+			if (msg.fdata.length) {
+				for (var i in msg.fdata) {
+					var fObj = freq.getFObjbyFData(msg.fdata[i]);
+					rotorhazard.nodes[i].fObj = fObj;
+					$('#s_channel_' + i).val(fObj.frequency);
+					$('#f_table_' + i).val(fObj.fString);
+					freq.updateBlock(fObj, i);
+				}
+			}
+		});
+
+		function populateHeats(msg) {
+			$(".pilots").empty();
+			$("#heat_list").empty();
+
+			var heats_by_class = {}
+			var active_pilot_ids = []
+			var active_heat = 1;
+			
+			for (var h in msg.heats) {
+				var heat = msg.heats[h];
+
+				// assemble heats by class
+				if (!(heat.class_id in heats_by_class)) {
+					heats_by_class[heat.class_id] = [];
+				}
+				if (heat.class_id == active_heat) {
+					heats_by_class[heat.class_id].push(heat)
+				}
+			}
+
+			if (msg.classes.length) {
+				// assemble class groups
+				for (var c in heats_by_class) {
+					var heat_list = heats_by_class[c]
+					var class_group = $('<li>');
+
+					if (heat_list.length) {
+						class_label = __('Unclassified');
+					class_id = 0;
+					for (var rc in msg.classes) {
+						if (c == msg.classes[rc].id) {
+							var class_data = msg.classes[rc]
+							class_label = class_data.name;
+							class_id = class_data.id;
+							break;
+						}
+					}
+
+					class_group.attr('data-class-id', class_id);
+					class_group.append('<h3>' + class_label + '</h3>');
+
+					heat_groups = $('<ol class="heats">');
+
+					for (var h in heat_list) {
+						var heat = heat_list[h];
+						console.log();
+
+						var heat_group = $('<li class="heat">');
+						heat_group.attr('heatid', heat['heat_id']);
+
+						if (heat.note) {
+							var heatname = heat.note;
+						} else {
+							var heatname = __('Heat') + ' ' + heat.heat_id;
+						}
+						heat_group.append('<h4>' + heatname + '</h4>');
+
+						var nodelist = $('<ol>');
+						for (p in heat.pilots) {
+							var heatpilot = heat.pilots[p];
+
+							var callsign = false;
+							for (var pd in msg.pilot_data) {
+								if (msg.pilot_data[pd].pilot_id == heatpilot) {
+									callsign = msg.pilot_data[pd].callsign;
+									break;
+								}
+							}
+
+							if (callsign) {
+								var slot = $('<li>');
+								slot.append('<div class="channel-block" data-node="' + p + '"><span class="ch"></span> <span class="fr"></span></div>');
+
+								slot.append('<div class="pilot-name">' + callsign + '</div>');
+								nodelist.append(slot);
+							}
+						}
+
+						heat_group.append(nodelist);
+						heat_groups.append(heat_group);
+						class_group.append(heat_groups);
+					}
+
+					$('#heat_list').append(class_group);
+
+					// move unclassified to end of list
+					$('#heat_list').append($('#heat_list li[data-class-id="0"]'));
+					}
+
+					
+				}
+			} else {
+				heat_groups = $('<ol class="heats">');
+
+				for (var h in msg.heats) {
+					var heat = msg.heats[h];
+					var heat_group = $('<li class="heat">');
+
+					if (heat.note) {
+						var heatname = heat.note;
+					} else {
+						var heatname = __('Heat') + ' ' + heat.heat_id;
+					}
+					heat_group.append('<h3>' + heatname + '</h3>');
+
+					var nodelist = $('<ol>');
+					for (p in heat.pilots) {
+						var heatpilot = heat.pilots[p];
+
+						var callsign = false;
+						for (var pd in msg.pilot_data) {
+							if (msg.pilot_data[pd].pilot_id == heatpilot) {
+								callsign = msg.pilot_data[pd].callsign;
+								break;
+							}
+						}
+
+						if (callsign) {
+							var slot = $('<li class="pilot-card">');
+							slot.append('<div class="channel-block" data-node="' + p + '"><span class="ch"></span> <span class="fr"></span></div>');
+
+							slot.append('<div class="pilot-name">' + callsign + '</div>');
+							nodelist.append(slot);
+						}
+					}
+
+					heat_group.append(nodelist);
+					heat_groups.append(heat_group);
+				}
+
+				$('#heat_list').append(heat_groups);
+			}
+
+
+			freq.updateBlocks();
+
+			// populate pilots
+
+			$('#pilot_list').empty();
+
+			for (var p in msg.pilot_data) {
+				pilot = msg.pilot_data[p];
+				if (active_pilot_ids.includes(pilot.pilot_id)) {
+					var el = $('<li data-id="' + pilot.pilot_id + '">');
+					el.append('<div class="name">'+ pilot.name + '</div>');
+					el.append('<div class="callsign">' + pilot.callsign + '</div>');
+					el.appendTo($('.pilots'));
+				}
+			}
+		}
+
+		socket.on('heat_data', function (msg) {
+			populateHeats(msg);
+			console.log("heat:", msg);
+		});
+
+		socket.on('current_heat', function (msg) {
+			console.log("currentheat:", msg.current_heat);
+			active_heat = msg.current_heat;
+			var target = ".heat[heatid=" + active_heat + "]";
+			$('.heat').removeClass('current');
+			$(target).addClass('current');
+		});
+
+
+	});
+</script>
+
+<main class="page-heats">
+
+<div id="section-heats">
+	<ul id="heat_list">
+		<li>{{ __('Loading...') }}</li>
+	</ul>
+</div>
+
+</main>
+{% endblock %}
